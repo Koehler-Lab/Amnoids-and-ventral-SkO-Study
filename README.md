@@ -1,1 +1,1 @@
-# Le_et_al_Amnoids_and_ventral_SkOs
+# Data analysis code related to Le et al: Lateral plate mesoderm directs human amnion and ventral skin organoid formation
