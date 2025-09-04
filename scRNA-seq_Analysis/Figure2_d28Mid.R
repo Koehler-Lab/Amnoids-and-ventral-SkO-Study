@@ -1,0 +1,286 @@
+# Figure 2: Differentiation and Characterization of Amnioids.
+library(Seurat)
+library(SeuratDisk)
+library(ggplot2)
+library(patchwork)
+library(pbapply)
+library(Nebulosa)
+library(ComplexHeatmap)
+source("rFunctions.R")
+
+
+# load P307 annotated by P239.3 with cell types present in at least a certain percentage of the developmental stage
+labels <- c("early", "mid", "late")
+cutoverlap <- c(0.14, 0.1, 0.1) # 0.1 used for mid and late stages
+
+i <- 2
+label <- labels[i]
+cut <- cutoverlap[i]
+# use UMAP transferred from Project 239.3
+P307 <- readRDS(file = paste0("P307", label, "_P239.3Annotated", cut, "pct.rds"))
+Y <- P307
+Y2 <- Y
+
+
+# decided to use col2 based on email from Phuong on 4/30/204
+library(RColorBrewer)
+col2 <- c(
+  brewer.pal(9, "YlOrBr")[2:5],
+  brewer.pal(9, "Oranges")[6],
+  brewer.pal(7, "Reds")[-1],
+  brewer.pal(9, "Blues"),
+  brewer.pal(4, "GnBu")[3:4],
+  brewer.pal(4, "Greens"),
+  brewer.pal(5, "Purples"),
+  brewer.pal(3, "PuRd")[3]
+)
+length(col2)
+names(col2) <- levels(P239.3$CT)
+matchColors2 <- col2
+
+gg_color_hue <- function(n) {
+  hues <- seq(15, 375, length = n + 1)
+  hcl(h = hues, l = 65, c = 100)[1:n]
+}
+
+
+# Figure 2e. UMAP visualization of single-cell RNA sequencing from Amnioids, SEO, and cSkO at day 28 post-differentiation, revealing distinct cell type populations across organoid models.
+png(paste0("P307", label, "_P239.3Annotated", cut, "pct_noaxes_biggerlabel.png"), height = 1600, width = 2200, res = 300)
+UMAPPlot(Y2, label = TRUE, label.size = 4.5, repel = TRUE) +
+  theme_bw() +
+  theme(
+    panel.border = element_blank(), panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text.x = element_text(size = 0), axis.text.y = element_text(size = 0),
+    axis.ticks.x = element_blank(), axis.ticks.y = element_blank()
+  ) +
+  xlab("") +
+  ylab("") +
+  scale_color_manual(values = matchColors2[levels(Idents(Y2))])
+dev.off()
+library(svglite)
+svglite(paste0("P307", label, "_P239.3Annotated", cut, "pct_noaxes_biggerlabel.svg"), width = 8.25, height = 6)
+UMAPPlot(Y2, label = TRUE, label.size = 4.5, repel = TRUE) +
+  theme_bw() +
+  theme(
+    panel.border = element_blank(), panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text.x = element_text(size = 0), axis.text.y = element_text(size = 0),
+    axis.ticks.x = element_blank(), axis.ticks.y = element_blank()
+  ) +
+  xlab("") +
+  ylab("") +
+  scale_color_manual(values = matchColors2[levels(Idents(Y2))])
+dev.off()
+
+# Figure 2f. Quantitative analysis of cell type proportions in each sample from panel e, showing modelspecific cellular compositions.
+Y <- Y2
+Y$sample <- factor(Y$sample, levels = levels(Y$sample)[which(levels(Y$sample) %in% unique(Y$sample))])
+Y2 <- Y
+
+CP <- table(Y$sample, Idents(Y))
+CP <- (CP / rowSums(CP)) * 100
+CP <- reshape2::melt(CP)
+colnames(CP) <- c("Sample", "CT", "Proportion")
+CP$Sample <- factor(CP$Sample, levels = rev(levels(CP$Sample)))
+
+library(ggplot2)
+png(paste0("P307", label, "_P239.3Annotated", cut, "pctCP.png"), width = 3500, height = length(unique(Y$sample)) * 100 + 600, res = 300)
+p <- ggplot(CP, aes(Proportion, Sample, fill = CT)) +
+  geom_bar(stat = "identity") +
+  theme_minimal() +
+  theme(
+    legend.position = "bottom",
+    panel.grid = element_blank()
+  ) +
+  labs(fill = "nCell Type") +
+  scale_fill_manual(values = matchColors2[levels(Idents(Y2))])
+print(p)
+dev.off()
+
+
+# Figure 2g. Volcano plot showing differentially expressed genes (DEGs) between Amnioid fibroblasts and cSkO fibroblasts (Venice test).
+# 6.10.2025 Volcano plot for BBrowser output
+Y <- Ymid
+label <- "mid"
+# BBrowser used Venice test; -log10FDR exported from BBrowser - capped at 3000
+# BBrowser unable to adjust figure shape and size
+# visualize BBrowser output in enhanced volcano plot in R
+markers <- read.table("Fibroblast Comparison.cSkO Fibroblasts-Amnioid Fibroblasts.tsv", header = T)
+summary(markers$neg_log10fdr)
+summary(abs(markers$log2fc))
+
+library(ggplot2)
+library(ggrepel)
+markers <- read.table("Fibroblast Comparison.cSkO Fibroblasts-Amnioid Fibroblasts.tsv", header = T)
+dim(markers)
+# [1] 8997    8
+
+p_cutoff <- 300 # corresponds to FDR = 1e-6
+fc_cutoff <- 1
+
+markers$significant <- with(markers, ifelse(
+  neg_log10fdr > p_cutoff & abs(log2fc) <= fc_cutoff, "FDR<1E-300",
+  ifelse(neg_log10fdr <= p_cutoff & abs(log2fc) > fc_cutoff, "FDR<1E-14 and Log2FC>1",
+    ifelse(neg_log10fdr > p_cutoff & abs(log2fc) > fc_cutoff, "FDR<1E-300 and Log2FC>1",
+      "FDR<1E-14"
+    )
+  )
+))
+markers$significant <- factor(markers$significant, levels = c("FDR<1E-14", "FDR<1E-300", "FDR<1E-14 and Log2FC>1", "FDR<1E-300 and Log2FC>1"))
+table(markers$significant)
+
+library(scales)
+color_map <- c(
+  "FDR<1E-14" = "grey40",
+  "FDR<1E-300" = "cornflowerblue",
+  "FDR<1E-14 and Log2FC>1" = "green3",
+  "FDR<1E-300 and Log2FC>1" = "red"
+)
+
+
+top_genes <- markers[which(markers$gene_name %in% c("COL15A1", "PITX2", "PITX1", "SOX4", "POU3F3")), ]
+png(file = paste0("P307", label, "_P239.3Annotated", cut, "pct1_BBrowser_Volcano2.png"), res = 300, height = 1000, width = 1900)
+par(mar = c(4, 4, 1, 1), mgp = c(2.5, 1, 0))
+ggplot(markers, aes(x = log2fc, y = neg_log10fdr)) +
+  geom_point(aes(color = significant), size = 1, shape = 16, alpha = 0.4) +
+  scale_color_manual(values = color_map) +
+  geom_point(
+    data = top_genes, aes(x = log2fc, y = neg_log10fdr),
+    shape = 21, color = "black", fill = alpha("red", 0.4), size = 1, stroke = 0.2
+  ) +
+  ggrepel::geom_text_repel(
+    data = top_genes, aes(label = gene_name), size = 3,
+    box.padding = 0.1,
+    point.padding = 0.05,
+    min.segment.length = 0
+  ) +
+  theme_minimal(base_size = 10) +
+  labs(
+    title = "Volcano Plot",
+    x = "log₂ Fold Change",
+    y = expression(-log[10] ~ FDR)
+  ) +
+  guides(color = guide_legend(override.aes = list(size = 3, alpha = 0.6))) +
+  theme(legend.text = element_text(size = 8)) +
+  coord_cartesian(ylim = c(0, 3000))
+dev.off()
+
+
+# Figure 2i. UMAP showing the differential expression of COL15A1 as a distinctive Amnioid fibroblast marker, which is absent in TCF4+ clusters (dermal fibroblast marker).
+# 6.4.2025 Feature plots
+# Fig 2i - color #DB5545, italic gene names, no axes
+genes <- c("COL15A1", "TCF4")
+summary(FetchData(Y, vars = genes))
+maxexp <- max(FetchData(Y, vars = genes))
+
+plots <- lapply(genes, function(gene) {
+  FeaturePlot(Y, features = gene, pt.size = 0.5) + NoLegend() + NoAxes() +
+    scale_color_gradientn(colours = c("grey90", "#DB5545"), limits = c(0, maxexp)) +
+    ggtitle(bquote(italic(.(gene)))) +
+    theme(plot.title = element_text(size = 28)) #
+})
+plotlist <- cowplot::plot_grid(plotlist = plots, ncol = 1)
+png(paste0("P307", label, "_P239.3Annotated", cut, "pct1_Feature_Fig2i_sameColorScale.png"), res = 300, height = 850 * 2, width = 800 * 1)
+plotlist
+dev.off()
+
+plots <- lapply(genes, function(gene) {
+  FeaturePlot(Y, features = gene, pt.size = 0.5) + NoAxes() +
+    scale_color_gradientn(colours = c("grey90", "#DB5545"), limits = c(0, maxexp)) +
+    ggtitle(bquote(italic(.(gene)))) +
+    theme(plot.title = element_text(size = 28)) # , pt.size=0.5
+})
+plotlist <- patchwork::wrap_plots(plots, ncol = 1) + plot_layout(guides = "collect") &
+  theme(legend.position = "right")
+png(paste0("P307", label, "_P239.3Annotated", cut, "pct1_Feature_Fig2i_sameColorScale_legend.png"), res = 300, height = 850 * 2, width = 900 * 1)
+plotlist
+dev.off()
+
+
+sessionInfo()
+R version 4.2.3 (2023-03-15)
+Platform: x86_64-conda-linux-gnu (64-bit)
+Running under: Rocky Linux 8.10 (Green Obsidian)
+Matrix products: default
+locale:
+ [1] LC_CTYPE=en_US.UTF-8       LC_NUMERIC=C              
+ [3] LC_TIME=en_US.UTF-8        LC_COLLATE=en_US.UTF-8    
+ [5] LC_MONETARY=en_US.UTF-8    LC_MESSAGES=en_US.UTF-8   
+ [7] LC_PAPER=en_US.UTF-8       LC_NAME=C                 
+ [9] LC_ADDRESS=C               LC_TELEPHONE=C            
+[11] LC_MEASUREMENT=en_US.UTF-8 LC_IDENTIFICATION=C       
+attached base packages:
+[1] grid      stats     graphics  grDevices utils     datasets  methods  
+[8] base     
+other attached packages:
+[1] ComplexHeatmap_2.14.0 Nebulosa_1.8.0        pbapply_1.7-0        
+[4] patchwork_1.1.2       ggplot2_3.4.4         SeuratDisk_0.0.0.9020
+[7] SeuratObject_4.1.3    Seurat_4.3.0         
+
+loaded via a namespace (and not attached):
+  [1] Rtsne_0.16                  colorspace_2.1-0           
+  [3] rjson_0.2.21                deldir_1.0-6               
+  [5] ellipsis_0.3.2              ggridges_0.5.4             
+  [7] mclust_6.0.0                circlize_0.4.15            
+  [9] XVector_0.38.0              GlobalOptions_0.1.2        
+ [11] GenomicRanges_1.50.2        clue_0.3-64                
+ [13] spatstat.data_3.0-1         leiden_0.4.3               
+ [15] listenv_0.9.0               ggrepel_0.9.3              
+ [17] bit64_4.0.5                 mvtnorm_1.1-3              
+ [19] fansi_1.0.4                 codetools_0.2-19           
+ [21] splines_4.2.3               doParallel_1.0.17          
+ [23] polyclip_1.10-4             jsonlite_1.8.4             
+ [25] ica_1.0-3                   cluster_2.1.4              
+ [27] png_0.1-8                   uwot_0.1.14                
+ [29] shiny_1.7.4                 sctransform_0.4.1          
+ [31] spatstat.sparse_3.0-1       compiler_4.2.3             
+ [33] httr_1.4.5                  Matrix_1.5-3               
+ [35] fastmap_1.1.1               lazyeval_0.2.2             
+ [37] cli_3.6.1                   later_1.3.0                
+ [39] htmltools_0.5.5             tools_4.2.3                
+ [41] igraph_2.0.3                GenomeInfoDbData_1.2.9     
+ [43] gtable_0.3.3                glue_1.6.2                 
+ [45] RANN_2.6.1                  reshape2_1.4.4             
+ [47] dplyr_1.1.1                 Rcpp_1.0.10                
+ [49] Biobase_2.58.0              scattermore_1.2            
+ [51] vctrs_0.6.1                 spatstat.explore_3.1-0     
+ [53] nlme_3.1-162                progressr_0.13.0           
+ [55] iterators_1.0.14            lmtest_0.9-40              
+ [57] spatstat.random_3.1-4       stringr_1.5.0              
+ [59] globals_0.16.2              mime_0.12                  
+ [61] miniUI_0.1.1.1              lifecycle_1.0.3            
+ [63] irlba_2.3.5.1               goftest_1.2-3              
+ [65] future_1.32.0               zlibbioc_1.44.0            
+ [67] MASS_7.3-58.3               zoo_1.8-11                 
+ [69] scales_1.2.1                promises_1.2.0.1           
+ [71] MatrixGenerics_1.10.0       spatstat.utils_3.0-2       
+ [73] parallel_4.2.3              SummarizedExperiment_1.28.0
+ [75] RColorBrewer_1.1-3          SingleCellExperiment_1.20.1
+ [77] reticulate_1.28             gridExtra_2.3              
+ [79] stringi_1.7.12              S4Vectors_0.36.2           
+ [81] foreach_1.5.2               BiocGenerics_0.44.0        
+ [83] shape_1.4.6                 GenomeInfoDb_1.34.9        
+ [85] bitops_1.0-7                rlang_1.1.4                
+ [87] pkgconfig_2.0.3             matrixStats_0.63.0         
+ [89] pracma_2.4.2                lattice_0.20-45            
+ [91] ROCR_1.0-11                 purrr_1.0.1                
+ [93] tensor_1.5                  ks_1.14.0                  
+ [95] htmlwidgets_1.6.2           cowplot_1.1.1              
+ [97] bit_4.0.5                   tidyselect_1.2.0           
+ [99] parallelly_1.35.0           RcppAnnoy_0.0.20           
+[101] plyr_1.8.8                  magrittr_2.0.3             
+[103] R6_2.5.1                    IRanges_2.32.0             
+[105] generics_0.1.3              DelayedArray_0.24.0        
+[107] pillar_1.9.0                withr_2.5.0                
+[109] fitdistrplus_1.1-8          RCurl_1.98-1.12            
+[111] survival_3.5-5              abind_1.4-5                
+[113] sp_1.6-0                    tibble_3.2.1               
+[115] future.apply_1.10.0         crayon_1.5.2               
+[117] hdf5r_1.3.8                 KernSmooth_2.23-20         
+[119] utf8_1.2.3                  spatstat.geom_3.1-0        
+[121] plotly_4.10.1               GetoptLong_1.0.5           
+[123] data.table_1.14.8           digest_0.6.31              
+[125] xtable_1.8-4                tidyr_1.3.0                
+[127] httpuv_1.6.9                stats4_4.2.3               
+[129] munsell_0.5.0               viridisLite_0.4.2     
